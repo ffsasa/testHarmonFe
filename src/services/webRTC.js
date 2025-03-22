@@ -30,3 +30,11 @@ hubConnection.on("ReceiveAnswer", async (callerId, answer) => {
     new RTCSessionDescription(JSON.parse(answer))
   );
 });
+
+peerConnection.current.onicecandidate = (event) => {
+  if (event.candidate && (selectedUser || incomingCaller)) {
+    const targetId = selectedUser || incomingCaller;
+    hubConnection.invoke("SendCandidate", targetId, JSON.stringify(event.candidate));
+    console.log("📡 Gửi ICE Candidate đến:", targetId);
+  }
+};

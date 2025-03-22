@@ -60,4 +60,15 @@ hubConnection.on("CallEnded", () => {
   console.log("📴 Cuộc gọi đã kết thúc");
 });
 
+hubConnection.on("ReceiveCandidate", async (senderId, candidate) => {
+  if (peerConnection) {
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(JSON.parse(candidate)));
+      console.log("✅ ICE Candidate được thêm từ:", senderId);
+    } catch (error) {
+      console.error("❌ Lỗi khi thêm ICE Candidate:", error);
+    }
+  }
+});
+
 export default hubConnection;
