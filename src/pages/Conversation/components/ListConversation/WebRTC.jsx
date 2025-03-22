@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import hubConnection, {
-  startConnection,
-  acceptCall,
-} from '../../../../services/HubConnection';
-import { HubConnection } from '@microsoft/signalr';
+import hubConnection, { startConnection, acceptCall } from '../../../../services/HubConnection';
+import { startWebRTC } from '../../../../services/webRTC'; // Thêm import này để gọi hàm startWebRTC
 import PhoneIcon from '@mui/icons-material/Phone';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
@@ -55,8 +52,6 @@ export default function WebRTC() {
     const handleCallAccepted = (partnerId) => {
       console.log('✅ Call accepted with:', partnerId);
       setActiveCall(true);
-      // Optionally, clear selectedUser nếu không cần hiển thị nữa
-      // setSelectedUserAfterAcceptedCall(selectedUser);
       setSelectedUser(null);
     };
     hubConnection.on('CallAccepted', handleCallAccepted);
@@ -64,7 +59,6 @@ export default function WebRTC() {
     // Lắng nghe sự kiện CallEnded từ server
     const handleCallEnded = () => {
       console.log('📴 Cuộc gọi đã kết thúc');
-      // Đóng kết nối WebRTC (nếu đang mở) và reset UI
       if (peerConnection.current) {
         peerConnection.current.close();
         peerConnection.current = null;
@@ -85,58 +79,47 @@ export default function WebRTC() {
     };
   }, []);
 
-  const createPeerConnection = async () => {
-    peerConnection.current = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
-
-    peerConnection.current.onicecandidate = (event) => {
-      if (event.candidate && (selectedUser || incomingCaller)) {
-        const targetId = selectedUser || incomingCaller;
-        hubConnection.invoke(
-          'SendCandidate',
-          targetId,
-          JSON.stringify(event.candidate)
-        );
-      }
-    };
-
-    peerConnection.current.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: false,
-      audio: true,
-    });
-    stream
-      .getTracks()
-      .forEach((track) => peerConnection.current.addTrack(track, stream));
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = stream;
+  // Thêm setupPeerConnection
+  const setupPeerConnection = () => {
+    if (!peerConnection.current) {
+      peerConnection.current = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      peerConnection.current.onicecandidate = (event) => {
+        if (event.candidate && (selectedUser || incomingCaller)) {
+          const targetId = selectedUser || incomingCaller;
+          hubConnection.invoke("SendCandidate", targetId, JSON.stringify(event.candidate));
+        }
+      };
+      peerConnection.current.ontrack = (event) => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+      };
     }
+    return peerConnection.current;
   };
 
-  // Khi bấm nút "Start Call" => gọi người dùng được random (selectedUser)
+  // Thay thế startCall
   const startCall = async () => {
-    if (!selectedUser) {
-      console.log('Chưa có người dùng được chọn để gọi.');
-      return;
-    }
-    await createPeerConnection();
-    hubConnection.invoke('StartCall', selectedUser);
+    if (!selectedUser) return;
+    const pc = setupPeerConnection();
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    await startWebRTC(pc, selectedUser); // Gọi hàm từ webRTC.js
+    hubConnection.invoke("StartCall", selectedUser);
   };
 
-  // Khi nhận được cuộc gọi, bấm nút "Accept Call" để chấp nhận
+  // Thay thế acceptIncomingCall
   const acceptIncomingCall = async () => {
-    if (incomingCaller) {
-      await createPeerConnection();
-      acceptCall(incomingCaller);
-      // setIncomingCallerAfterAcceptedCall(incomingCaller);
-      setIncomingCaller(null);
-    }
+    if (!incomingCaller) return;
+    const pc = setupPeerConnection();
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    acceptCall(incomingCaller);
+    setIncomingCaller(null);
   };
 
   // Khi nhận được cuộc gọi, bấm nút "Reject Call" để không chấp nhận
@@ -150,7 +133,7 @@ export default function WebRTC() {
     }
   };
 
-  // Khi bấm nút "End Call", gửi sự kiện EndCall lên server.
+  // Khi bấm nút "End Call", gửi sự kiện EndCall lên server
   const endCall = async () => {
     if (peerConnection.current) {
       peerConnection.current.close();
@@ -177,7 +160,8 @@ export default function WebRTC() {
         justifyContent: 'center',
         alignItems: 'center',
         width: '100%',
-      }}>
+      }}
+    >
       <h1>WebRTC CallHub</h1>
 
       {(selectedUser || incomingCaller) && (
@@ -192,7 +176,8 @@ export default function WebRTC() {
             padding: '20px',
             borderRadius: '10px',
             marginBottom: '100px',
-          }}>
+          }}
+        >
           {incomingCaller ? (
             <div
               style={{
@@ -201,7 +186,8 @@ export default function WebRTC() {
                 marginBottom: '10px',
                 width: '100%',
                 borderRadius: '10px',
-              }}>
+              }}
+            >
               <strong>Cuộc gọi đến từ: {incomingCaller}</strong>
             </div>
           ) : (
@@ -211,9 +197,9 @@ export default function WebRTC() {
                 background: '#d0f0d0',
                 marginBottom: '10px',
                 width: '100%',
-
                 borderRadius: '10px',
-              }}>
+              }}
+            >
               <strong>Người dùng được chọn để gọi: {selectedUser}</strong>
             </div>
           )}
@@ -231,17 +217,18 @@ export default function WebRTC() {
                 marginBottom: '15px',
                 cursor: 'pointer',
               }}
-              onClick={reloadSelectedUser}>
+              onClick={reloadSelectedUser}
+            >
               <RefreshIcon sx={{ color: 'white' }} />
             </div>
           )}
           <img
-            src='https://images.unsplash.com/photo-1520547704200-8bbf59077512?fm=jpg&q=60&w=3000&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWFuJTIwd2l0aCUyMGNhcnxlbnwwfHwwfHx8MA%3D%3D'
+            src="https://images.unsplash.com/photo-1520547704200-8bbf59077512?fm=jpg&q=60&w=3000&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWFuJTIwd2l0aCUyMGNhcnxlbnwwfHwwfHx8MA%3D%3D"
             style={{
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'start',
-              alignItems: 'starts',
+              alignItems: 'start',
               gap: '10px',
               textAlign: 'left',
               width: '100%',
@@ -260,7 +247,8 @@ export default function WebRTC() {
               textAlign: 'left',
               width: '100%',
               marginBottom: '10px',
-            }}>
+            }}
+          >
             <p style={{ fontWeight: 'bold', fontSize: '25px', margin: 0 }}>
               Antony
             </p>
@@ -272,7 +260,8 @@ export default function WebRTC() {
               textAlign: 'left',
               fontSize: '10px',
               color: 'grey',
-            }}>
+            }}
+          >
             <p style={{ margin: 0, marginBottom: '5px' }}>
               New York University
             </p>
@@ -284,7 +273,8 @@ export default function WebRTC() {
               textAlign: 'left',
               fontSize: '15px',
               margin: 0,
-            }}>
+            }}
+          >
             Successful, driven, and always chasing meaningful connections. 💼✨
             I'm a man who thrives on ambition but believes true happiness lies
             in the moments shared with someone special. From deep conversations
@@ -306,7 +296,8 @@ export default function WebRTC() {
                 marginBottom: '15px',
                 cursor: 'pointer',
               }}
-              onClick={startCall}>
+              onClick={startCall}
+            >
               <div>
                 <PhoneIcon sx={{ color: 'white' }} />
               </div>
@@ -319,7 +310,8 @@ export default function WebRTC() {
                   display: 'flex',
                   justifyContent: 'center',
                   gap: '20px',
-                }}>
+                }}
+              >
                 <div
                   style={{
                     display: 'flex',
@@ -333,7 +325,7 @@ export default function WebRTC() {
                     cursor: 'pointer',
                   }}
                   onClick={rejectIncomingCall}
-                  >
+                >
                   <div>
                     <CloseIcon sx={{ color: 'white' }} />
                   </div>
@@ -350,7 +342,8 @@ export default function WebRTC() {
                     marginBottom: '15px',
                     cursor: 'pointer',
                   }}
-                  onClick={acceptIncomingCall}>
+                  onClick={acceptIncomingCall}
+                >
                   <div>
                     <CheckIcon sx={{ color: 'white' }} />
                   </div>
@@ -382,7 +375,8 @@ export default function WebRTC() {
             flexDirection: 'column',
             justifyContent: 'center',
             alignItems: 'center',
-          }}>
+          }}
+        >
           <div
             style={{
               display: 'flex',
@@ -394,8 +388,8 @@ export default function WebRTC() {
               padding: '20px',
               borderRadius: '10px',
               marginBottom: '100px',
-            }}>
-          
+            }}
+          >
             <div
               style={{
                 padding: '10px',
@@ -403,16 +397,17 @@ export default function WebRTC() {
                 marginBottom: '10px',
                 width: '100%',
                 borderRadius: '10px',
-              }}>
+              }}
+            >
               <strong>Cuộc gọi đang hoạt động</strong>
             </div>
             <img
-              src='https://images.unsplash.com/photo-1520547704200-8bbf59077512?fm=jpg&q=60&w=3000&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWFuJTIwd2l0aCUyMGNhcnxlbnwwfHwwfHx8MA%3D%3D'
+              src="https://images.unsplash.com/photo-1520547704200-8bbf59077512?fm=jpg&q=60&w=3000&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWFuJTIwd2l0aCUyMGNhcnxlbnwwfHwwfHx8MA%3D%3D"
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'start',
-                alignItems: 'starts',
+                alignItems: 'start',
                 gap: '10px',
                 textAlign: 'left',
                 width: '100%',
@@ -431,14 +426,16 @@ export default function WebRTC() {
                 textAlign: 'left',
                 width: '100%',
                 marginBottom: '10px',
-              }}>
+              }}
+            >
               <p
                 style={{
                   fontWeight: 'bold',
                   fontSize: '25px',
                   marginBottom: 0,
                   marginTop: 0,
-                }}>
+                }}
+              >
                 Antony
               </p>
               <p
@@ -448,7 +445,8 @@ export default function WebRTC() {
                   marginBottom: 0,
                   marginTop: 0,
                   color: 'grey',
-                }}>
+                }}
+              >
                 26
               </p>
             </div>
@@ -458,7 +456,8 @@ export default function WebRTC() {
                 textAlign: 'left',
                 fontSize: '10px',
                 color: 'grey',
-              }}>
+              }}
+            >
               <p style={{ margin: 0, marginBottom: '5px' }}>
                 New York University
               </p>
@@ -470,7 +469,8 @@ export default function WebRTC() {
                 textAlign: 'left',
                 fontSize: '15px',
                 margin: 0,
-              }}>
+              }}
+            >
               Successful, driven, and always chasing meaningful connections.
               💼✨ I'm a man who thrives on ambition but believes true happiness
               lies in the moments shared with someone special. From deep
@@ -478,7 +478,7 @@ export default function WebRTC() {
               genuine connections. ❤️ Looking for a partner to create
               unforgettable memories with—if you’re into romance, good vibes,
               and real talks, let’s see where this goes.
-            </p>          
+            </p>
             {activeCall && (
               <div
                 style={{
@@ -492,7 +492,8 @@ export default function WebRTC() {
                   marginBottom: '15px',
                   cursor: 'pointer',
                 }}
-                onClick={endCall}>
+                onClick={endCall}
+              >
                 <div>
                   <CloseIcon sx={{ color: 'white' }} />
                 </div>

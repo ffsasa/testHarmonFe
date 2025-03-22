@@ -12,6 +12,7 @@ export const startWebRTC = async (peerConnection, remoteConnectionId) => {
 };
 
 hubConnection.on("ReceiveOffer", async (callerId, offer) => {
+  console.log("📥 Nhận Offer từ:", callerId, offer);
   const peerConnection = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
@@ -26,6 +27,7 @@ hubConnection.on("ReceiveOffer", async (callerId, offer) => {
 });
 
 hubConnection.on("ReceiveAnswer", async (callerId, answer) => {
+  console.log("📥 Nhận Answer từ:", callerId, answer);
   await peerConnection.setRemoteDescription(
     new RTCSessionDescription(JSON.parse(answer))
   );
@@ -33,6 +35,7 @@ hubConnection.on("ReceiveAnswer", async (callerId, answer) => {
 
 peerConnection.current.onicecandidate = (event) => {
   if (event.candidate && (selectedUser || incomingCaller)) {
+    console.log("📡 Gửi ICE Candidate đến:", selectedUser);
     const targetId = selectedUser || incomingCaller;
     hubConnection.invoke("SendCandidate", targetId, JSON.stringify(event.candidate));
     console.log("📡 Gửi ICE Candidate đến:", targetId);
