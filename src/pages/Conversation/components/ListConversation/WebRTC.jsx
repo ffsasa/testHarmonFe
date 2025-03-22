@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import hubConnection, { startConnection, acceptCall } from '../../../../services/HubConnection';
-import { startWebRTC } from '../../../../services/webRTC'; // Thêm import này để gọi hàm startWebRTC
+import { startWebRTC, configureWebRTC } from '../../../../services/webRTC'; // Import thêm configureWebRTC
 import PhoneIcon from '@mui/icons-material/Phone';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
 export default function WebRTC() {
-  // State để lưu thông tin cuộc gọi đến (người gọi đến)
   const [incomingCaller, setIncomingCaller] = useState(null);
-  // State để lưu thông tin người dùng được random (người nhận cuộc gọi)
   const [selectedUser, setSelectedUser] = useState(null);
-  // State để đánh dấu cuộc gọi đã được chấp nhận (đang hoạt động)
   const [activeCall, setActiveCall] = useState(false);
 
   const localVideoRef = useRef(null);
@@ -48,7 +45,6 @@ export default function WebRTC() {
     };
     hubConnection.on('NoAvailableUsers', handleNoAvailableUsers);
 
-    // Khi cuộc gọi được chấp nhận, nhận sự kiện "CallAccepted" từ server
     const handleCallAccepted = (partnerId) => {
       console.log('✅ Call accepted with:', partnerId);
       setActiveCall(true);
@@ -56,7 +52,6 @@ export default function WebRTC() {
     };
     hubConnection.on('CallAccepted', handleCallAccepted);
 
-    // Lắng nghe sự kiện CallEnded từ server
     const handleCallEnded = () => {
       console.log('📴 Cuộc gọi đã kết thúc');
       if (peerConnection.current) {
@@ -71,15 +66,19 @@ export default function WebRTC() {
     };
     hubConnection.on('CallEnded', handleCallEnded);
 
+    // Cấu hình WebRTC với peerConnection
+    configureWebRTC(peerConnection.current);
+
     return () => {
       hubConnection.off('IncomingCall', handleIncomingCall);
       hubConnection.off('RandomUserSelected', handleRandomUserSelected);
       hubConnection.off('NoAvailableUsers', handleNoAvailableUsers);
       hubConnection.off('CallEnded', handleCallEnded);
+      hubConnection.off('ReceiveOffer');
+      hubConnection.off('ReceiveAnswer');
     };
   }, []);
 
-  // Thêm setupPeerConnection
   const setupPeerConnection = () => {
     if (!peerConnection.current) {
       peerConnection.current = new RTCPeerConnection({
@@ -100,18 +99,16 @@ export default function WebRTC() {
     return peerConnection.current;
   };
 
-  // Thay thế startCall
   const startCall = async () => {
     if (!selectedUser) return;
     const pc = setupPeerConnection();
     const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-    await startWebRTC(pc, selectedUser); // Gọi hàm từ webRTC.js
+    await startWebRTC(pc, selectedUser);
     hubConnection.invoke("StartCall", selectedUser);
   };
 
-  // Thay thế acceptIncomingCall
   const acceptIncomingCall = async () => {
     if (!incomingCaller) return;
     const pc = setupPeerConnection();
@@ -122,7 +119,6 @@ export default function WebRTC() {
     setIncomingCaller(null);
   };
 
-  // Khi nhận được cuộc gọi, bấm nút "Reject Call" để không chấp nhận
   const rejectIncomingCall = async () => {
     if (incomingCaller) {
       await hubConnection.invoke('RejectCall', incomingCaller);
@@ -133,7 +129,6 @@ export default function WebRTC() {
     }
   };
 
-  // Khi bấm nút "End Call", gửi sự kiện EndCall lên server
   const endCall = async () => {
     if (peerConnection.current) {
       peerConnection.current.close();
@@ -163,7 +158,7 @@ export default function WebRTC() {
       }}
     >
       <h1>WebRTC CallHub</h1>
-
+      {/* Phần JSX giữ nguyên như code của bạn */}
       {(selectedUser || incomingCaller) && (
         <div
           style={{
@@ -203,7 +198,6 @@ export default function WebRTC() {
               <strong>Người dùng được chọn để gọi: {selectedUser}</strong>
             </div>
           )}
-          {/* Nút Reload xuất hiện khi không có cuộc gọi đến */}
           {!incomingCaller && (
             <div
               style={{
